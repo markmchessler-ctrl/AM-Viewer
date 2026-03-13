@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dolby Atmos Visualizer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #app { width: 100%; height: 100%; }
+    canvas { display: block; }
+
+    #controls {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 100;
+      color: #e0e0e0;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      background: rgba(10, 10, 10, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 16px;
+      min-width: 240px;
+      backdrop-filter: blur(12px);
+      user-select: none;
+    }
+
+    #controls h2 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #00d4ff;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    #controls .control-group {
+      margin-bottom: 12px;
+    }
+
+    #controls label {
+      display: block;
+      margin-bottom: 4px;
+      color: #888;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    #controls select, #controls input[type="file"], #controls button {
+      width: 100%;
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    #controls button {
+      background: rgba(0, 212, 255, 0.15);
+      border-color: rgba(0, 212, 255, 0.3);
+      transition: background 0.2s;
+    }
+
+    #controls button:hover {
+      background: rgba(0, 212, 255, 0.25);
+    }
+
+    #controls .separator {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      margin: 12px 0;
+    }
+
+    #controls input[type="range"] {
+      width: 100%;
+      accent-color: #00d4ff;
+    }
+
+    #hud {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      z-index: 100;
+      color: #666;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    #hud .beat-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #333;
+      margin-right: 6px;
+      transition: background 0.05s;
+    }
+
+    #hud .beat-indicator.active {
+      background: #00d4ff;
+      box-shadow: 0 0 8px #00d4ff;
+    }
+
+    .drop-zone {
+      border: 2px dashed rgba(0, 212, 255, 0.3);
+      border-radius: 4px;
+      padding: 16px;
+      text-align: center;
+      color: #666;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .drop-zone.dragover {
+      border-color: #00d4ff;
+      background: rgba(0, 212, 255, 0.05);
+      color: #00d4ff;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="controls">
+    <h2>Atmos Visualizer</h2>
+
+    <div class="control-group">
+      <label>Audio Source</label>
+      <select id="source-select">
+        <option value="file">Local File</option>
+        <option value="system-capture">System Capture (Virtual Device)</option>
+        <option value="musickit">Apple Music (MusicKit)</option>
+      </select>
+    </div>
+
+    <div id="file-controls" class="control-group">
+      <div class="drop-zone" id="drop-zone">
+        Drop audio file here or click to browse
+        <input type="file" id="file-input" accept=".wav,.flac,.bwf" style="display:none" />
+      </div>
+    </div>
+
+    <div id="capture-controls" class="control-group" style="display:none">
+      <label>Input Device</label>
+      <select id="device-select">
+        <option value="">Select device...</option>
+      </select>
+      <button id="capture-start" style="margin-top:8px">Start Capture</button>
+    </div>
+
+    <div id="musickit-controls" class="control-group" style="display:none">
+      <input type="text" id="musickit-search" placeholder="Search Apple Music..." style="width:100%;padding:6px 8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:#e0e0e0;font-family:inherit;font-size:12px;" />
+      <button id="musickit-play" style="margin-top:8px">Play / Pause</button>
+    </div>
+
+    <div class="separator"></div>
+
+    <div class="control-group">
+      <label>Particle Density</label>
+      <input type="range" id="particle-density" min="0.1" max="2" step="0.1" value="1" />
+    </div>
+
+    <div class="control-group">
+      <label>Show Speaker Labels</label>
+      <select id="show-labels">
+        <option value="1">Yes</option>
+        <option value="0">No</option>
+      </select>
+    </div>
+
+    <div class="separator"></div>
+
+    <div class="control-group">
+      <label>Camera</label>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+        <button class="camera-preset" data-preset="front" style="flex:1;min-width:0">Front</button>
+        <button class="camera-preset" data-preset="top" style="flex:1;min-width:0">Top</button>
+        <button class="camera-preset" data-preset="side" style="flex:1;min-width:0">Side</button>
+        <button class="camera-preset" data-preset="free" style="flex:1;min-width:0">Free</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="hud">
+    <span class="beat-indicator" id="beat-dot"></span>
+    <span id="hud-bpm">-- BPM</span> |
+    <span id="hud-fps">-- FPS</span> |
+    <span id="hud-source">No source</span>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
