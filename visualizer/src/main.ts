@@ -97,17 +97,25 @@ class AtmosVisualizer {
     this.sceneManager.start();
   }
 
+  private controls!: Controls;
+
   private setupControls(): void {
-    new Controls({
+    this.controls = new Controls({
       onSourceChange: (source) => this.setActiveSource(source),
       onFileSelected: (file) => this.loadFile(file),
+      onPlay: () => this.fileSource.play(),
+      onPause: () => this.fileSource.pause(),
+      onStop: () => this.fileSource.stop(),
+      onReplay: () => {
+        this.fileSource.stop();
+        this.fileSource.play();
+      },
       onCaptureDeviceSelected: (deviceId) => {
         this.selectedDeviceId = deviceId;
       },
       onCaptureStart: () => this.startCapture(),
       onMusicKitPlay: () => this.toggleMusicKit(),
       onMusicKitSearch: (_query) => {
-        // MusicKit search would be implemented with a valid developer token
         console.log('MusicKit search requires a valid Apple Developer token');
       },
       onParticleDensityChange: (value) => {
@@ -137,6 +145,9 @@ class AtmosVisualizer {
           `${this.admMetadata.beds.length} beds`
         );
       }
+
+      // Show playback controls
+      this.controls.showPlaybackControls(result.fileName, result.channelCount, result.duration);
 
       // Playback starts automatically from loadBuffer()
     };

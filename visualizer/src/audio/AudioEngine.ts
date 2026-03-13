@@ -5,12 +5,18 @@ export type AudioSourceType = 'file' | 'system-capture' | 'musickit';
 /**
  * Central audio graph manager.
  * Creates the AudioContext and routes audio through analysis nodes.
+ *
+ * For multichannel files (>6 channels like 7.1.4), browsers cannot
+ * automatically downmix to stereo. We explicitly downmix using
+ * individual channel gain nodes routed to a stereo merger.
  */
 export class AudioEngine {
   public context: AudioContext;
   public masterGain: GainNode;
   private channelAnalysers: AnalyserNode[] = [];
   private channelSplitter: ChannelSplitterNode | null = null;
+  private stereoMerger: ChannelMergerNode | null = null;
+  private downmixGains: GainNode[] = [];
   private currentSourceNode: AudioNode | null = null;
   private sourceType: AudioSourceType = 'file';
 
@@ -21,6 +27,8 @@ export class AudioEngine {
   constructor() {
     this.context = new AudioContext();
     this.masterGain = this.context.createGain();
+    this.masterGain.channelCount = 2;
+    this.masterGain.channelCountMode = 'explicit';
     this.masterGain.connect(this.context.destination);
   }
 
@@ -85,35 +93,156 @@ export class AudioEngine {
   }
 
   /**
-   * Set up per-channel analysis by splitting the source into individual channels.
+   * Set up per-channel analysis and stereo downmix for audio output.
    */
   private setupChannelAnalysis(source: AudioNode, channelCount: number): void {
-    // Clean up previous analysers
     this.channelAnalysers = [];
     this.fftBuffers = [];
     this.timeDomainBuffers = [];
+    this.downmixGains = [];
 
-    const maxChannels = Math.min(channelCount, 12); // Cap at 7.1.4
+    const maxChannels = Math.min(channelCount, 12);
 
-    // Create channel splitter
+    // For stereo sources, just connect directly
+    if (maxChannels <= 2) {
+      const analyser = this.context.createAnalyser();
+      analyser.fftSize = FFT_SIZE;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      this.channelAnalysers.push(analyser);
+      this.fftBuffers.push(new Float32Array(new ArrayBuffer(analyser.frequencyBinCount * 4)));
+      this.timeDomainBuffers.push(new Float32Array(new ArrayBuffer(analyser.fftSize * 4)));
+
+      if (maxChannels === 2) {
+        // Add a second analyser for R channel
+        this.channelSplitter = this.context.createChannelSplitter(2);
+        source.connect(this.channelSplitter);
+        const analyserR = this.context.createAnalyser();
+        analyserR.fftSize = FFT_SIZE;
+        analyserR.smoothingTimeConstant = 0.8;
+        this.channelSplitter.connect(analyserR, 1);
+        this.channelAnalysers.push(analyserR);
+        this.fftBuffers.push(new Float32Array(new ArrayBuffer(analyserR.frequencyBinCount * 4)));
+        this.timeDomainBuffers.push(new Float32Array(new ArrayBuffer(analyserR.fftSize * 4)));
+      }
+
+      source.connect(this.masterGain);
+      return;
+    }
+
+    // For multichannel: split into individual channels for analysis
+    // and build an explicit stereo downmix for audio output
     this.channelSplitter = this.context.createChannelSplitter(maxChannels);
     source.connect(this.channelSplitter);
 
-    // Create an analyser for each channel
+    // Create per-channel analysers
     for (let i = 0; i < maxChannels; i++) {
       const analyser = this.context.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       analyser.smoothingTimeConstant = 0.8;
-
       this.channelSplitter.connect(analyser, i);
       this.channelAnalysers.push(analyser);
-
       this.fftBuffers.push(new Float32Array(new ArrayBuffer(analyser.frequencyBinCount * 4)));
       this.timeDomainBuffers.push(new Float32Array(new ArrayBuffer(analyser.fftSize * 4)));
     }
 
-    // Also connect to master gain for audio output
-    source.connect(this.masterGain);
+    // Build stereo downmix: route each channel to L/R with appropriate gains
+    // ITU-R BS.775-based downmix coefficients
+    this.stereoMerger = this.context.createChannelMerger(2);
+
+    // Downmix matrix: [channelIndex] = { left: gain, right: gain }
+    const downmix = this.getDownmixMatrix(maxChannels);
+
+    for (let i = 0; i < maxChannels; i++) {
+      const mix = downmix[i];
+      if (!mix) continue;
+
+      if (mix.left > 0) {
+        const gainL = this.context.createGain();
+        gainL.gain.value = mix.left;
+        this.channelSplitter.connect(gainL, i);
+        gainL.connect(this.stereoMerger, 0, 0); // to left output
+        this.downmixGains.push(gainL);
+      }
+
+      if (mix.right > 0) {
+        const gainR = this.context.createGain();
+        gainR.gain.value = mix.right;
+        this.channelSplitter.connect(gainR, i);
+        gainR.connect(this.stereoMerger, 0, 1); // to right output
+        this.downmixGains.push(gainR);
+      }
+    }
+
+    this.stereoMerger.connect(this.masterGain);
+  }
+
+  /**
+   * Get stereo downmix coefficients for a given channel count.
+   * Based on ITU-R BS.775 and Dolby downmix conventions.
+   */
+  private getDownmixMatrix(channelCount: number): Array<{ left: number; right: number }> {
+    const c = 0.707; // -3dB center
+    const s = 0.707; // -3dB surround
+    const h = 0.5;   // -6dB height
+
+    if (channelCount >= 12) {
+      // 7.1.4: L R C LFE Ls Rs Lrs Rrs Ltf Rtf Ltb Rtb
+      return [
+        { left: 1.0, right: 0.0 },  // L → L
+        { left: 0.0, right: 1.0 },  // R → R
+        { left: c,   right: c   },  // C → both
+        { left: c,   right: c   },  // LFE → both (attenuated)
+        { left: s,   right: 0.0 },  // Ls → L
+        { left: 0.0, right: s   },  // Rs → R
+        { left: s,   right: 0.0 },  // Lrs → L
+        { left: 0.0, right: s   },  // Rrs → R
+        { left: h,   right: 0.0 },  // Ltf → L
+        { left: 0.0, right: h   },  // Rtf → R
+        { left: h,   right: 0.0 },  // Ltb → L
+        { left: 0.0, right: h   },  // Rtb → R
+      ];
+    }
+
+    if (channelCount >= 10) {
+      // 5.1.4: L R C LFE Ls Rs Ltf Rtf Ltb Rtb
+      return [
+        { left: 1.0, right: 0.0 },
+        { left: 0.0, right: 1.0 },
+        { left: c,   right: c   },
+        { left: c,   right: c   },
+        { left: s,   right: 0.0 },
+        { left: 0.0, right: s   },
+        { left: h,   right: 0.0 },
+        { left: 0.0, right: h   },
+        { left: h,   right: 0.0 },
+        { left: 0.0, right: h   },
+      ];
+    }
+
+    if (channelCount >= 8) {
+      // 7.1: L R C LFE Ls Rs Lrs Rrs
+      return [
+        { left: 1.0, right: 0.0 },
+        { left: 0.0, right: 1.0 },
+        { left: c,   right: c   },
+        { left: c,   right: c   },
+        { left: s,   right: 0.0 },
+        { left: 0.0, right: s   },
+        { left: s,   right: 0.0 },
+        { left: 0.0, right: s   },
+      ];
+    }
+
+    // 5.1: L R C LFE Ls Rs (browser can handle this natively, but just in case)
+    return [
+      { left: 1.0, right: 0.0 },
+      { left: 0.0, right: 1.0 },
+      { left: c,   right: c   },
+      { left: c,   right: c   },
+      { left: s,   right: 0.0 },
+      { left: 0.0, right: s   },
+    ];
   }
 
   /**
@@ -121,34 +250,28 @@ export class AudioEngine {
    */
   public disconnect(): void {
     if (this.currentSourceNode) {
-      try {
-        this.currentSourceNode.disconnect();
-      } catch {
-        // Already disconnected
-      }
+      try { this.currentSourceNode.disconnect(); } catch { /* already disconnected */ }
       this.currentSourceNode = null;
     }
     if (this.channelSplitter) {
-      try {
-        this.channelSplitter.disconnect();
-      } catch {
-        // Already disconnected
-      }
+      try { this.channelSplitter.disconnect(); } catch { /* already disconnected */ }
       this.channelSplitter = null;
     }
+    if (this.stereoMerger) {
+      try { this.stereoMerger.disconnect(); } catch { /* already disconnected */ }
+      this.stereoMerger = null;
+    }
+    for (const g of this.downmixGains) {
+      try { g.disconnect(); } catch { /* already disconnected */ }
+    }
+    this.downmixGains = [];
     this.channelAnalysers = [];
   }
 
-  /**
-   * Get the number of active analysis channels.
-   */
   get channelCount(): number {
     return this.channelAnalysers.length;
   }
 
-  /**
-   * Get FFT frequency data for a specific channel.
-   */
   public getFrequencyData(channel: number): Float32Array {
     const analyser = this.channelAnalysers[channel];
     const buffer = this.fftBuffers[channel];
@@ -159,9 +282,6 @@ export class AudioEngine {
     return new Float32Array(0);
   }
 
-  /**
-   * Get time-domain data for a specific channel.
-   */
   public getTimeDomainData(channel: number): Float32Array {
     const analyser = this.channelAnalysers[channel];
     const buffer = this.timeDomainBuffers[channel];
@@ -172,9 +292,6 @@ export class AudioEngine {
     return new Float32Array(0);
   }
 
-  /**
-   * Get all FFT data for all channels.
-   */
   public getAllFrequencyData(): Float32Array[] {
     for (let i = 0; i < this.channelAnalysers.length; i++) {
       this.channelAnalysers[i].getFloatFrequencyData(this.fftBuffers[i]);

@@ -144,6 +144,15 @@
         Drop audio file here or click to browse
         <input type="file" id="file-input" accept=".wav,.flac,.bwf" style="display:none" />
       </div>
+      <div id="playback-controls" style="display:none;margin-top:8px;">
+        <div style="display:flex;gap:4px;">
+          <button id="btn-play" style="flex:1;min-width:0" title="Play">&#9654; Play</button>
+          <button id="btn-pause" style="flex:1;min-width:0" title="Pause">&#9646;&#9646; Pause</button>
+          <button id="btn-stop" style="flex:1;min-width:0" title="Stop">&#9632; Stop</button>
+          <button id="btn-replay" style="flex:1;min-width:0" title="Replay">&#8634; Replay</button>
+        </div>
+        <div id="track-info" style="margin-top:6px;color:#666;font-size:11px;"></div>
+      </div>
     </div>
 
     <div id="capture-controls" class="control-group" style="display:none">

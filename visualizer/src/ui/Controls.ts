@@ -3,6 +3,10 @@ import type { AudioSourceType } from '../audio/AudioEngine';
 export interface ControlsCallbacks {
   onSourceChange: (source: AudioSourceType) => void;
   onFileSelected: (file: File) => void;
+  onPlay: () => void;
+  onPause: () => void;
+  onStop: () => void;
+  onReplay: () => void;
   onCaptureDeviceSelected: (deviceId: string) => void;
   onCaptureStart: () => void;
   onMusicKitPlay: () => void;
@@ -66,6 +70,12 @@ export class Controls {
       }
     });
 
+    // Playback controls
+    document.getElementById('btn-play')?.addEventListener('click', () => this.callbacks.onPlay());
+    document.getElementById('btn-pause')?.addEventListener('click', () => this.callbacks.onPause());
+    document.getElementById('btn-stop')?.addEventListener('click', () => this.callbacks.onStop());
+    document.getElementById('btn-replay')?.addEventListener('click', () => this.callbacks.onReplay());
+
     // Capture controls
     const deviceSelect = document.getElementById('device-select') as HTMLSelectElement;
     deviceSelect?.addEventListener('change', () => {
@@ -118,6 +128,19 @@ export class Controls {
     if (fileControls) fileControls.style.display = source === 'file' ? 'block' : 'none';
     if (captureControls) captureControls.style.display = source === 'system-capture' ? 'block' : 'none';
     if (musickitControls) musickitControls.style.display = source === 'musickit' ? 'block' : 'none';
+  }
+
+  /**
+   * Show playback controls and set track info.
+   */
+  public showPlaybackControls(fileName: string, channelCount: number, duration: number): void {
+    const el = document.getElementById('playback-controls');
+    if (el) el.style.display = 'block';
+
+    const info = document.getElementById('track-info');
+    if (info) {
+      info.textContent = `${fileName} | ${channelCount}ch | ${duration.toFixed(1)}s`;
+    }
   }
 
   /**
