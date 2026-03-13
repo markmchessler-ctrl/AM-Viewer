@@ -36,11 +36,18 @@ export class ObjectTracker {
 
   /**
    * Update tracked objects from ADM metadata.
+   * Optionally accepts per-channel energy data for energy-driven visualization.
    */
-  public updateObjects(admObjects: AdmAudioObject[], currentTime: number): void {
+  public updateObjects(
+    admObjects: AdmAudioObject[],
+    currentTime: number,
+    channelEnergies?: number[],
+    bedChannelCount?: number,
+  ): void {
     const activeIds = new Set<string>();
 
-    for (const obj of admObjects) {
+    for (let i = 0; i < admObjects.length; i++) {
+      const obj = admObjects[i];
       activeIds.add(obj.id);
 
       if (!this.objects.has(obj.id)) {
@@ -67,9 +74,16 @@ export class ObjectTracker {
         tracked.label.position.copy(tracked.mesh.position);
         tracked.label.position.y += 0.15;
 
-        // Pulse with gain
-        const gain = clamp(obj.gain ?? 1, 0, 2);
-        tracked.currentEnergy = smoothStep(tracked.currentEnergy, gain, 0.1);
+        // Use per-channel audio energy if available, otherwise fall back to ADM gain
+        let energy: number;
+        if (channelEnergies && bedChannelCount !== undefined) {
+          const chIndex = bedChannelCount + i;
+          energy = clamp((channelEnergies[chIndex] ?? 0) * 3, 0, 2);
+        } else {
+          energy = clamp(obj.gain ?? 1, 0, 2);
+        }
+
+        tracked.currentEnergy = smoothStep(tracked.currentEnergy, energy, 0.1);
         const scale = 0.08 + tracked.currentEnergy * 0.08;
         tracked.mesh.scale.set(scale / 0.06, scale / 0.06, scale / 0.06);
 

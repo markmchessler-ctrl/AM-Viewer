@@ -3,6 +3,7 @@ import type { AudioSourceType } from '../audio/AudioEngine';
 export interface ControlsCallbacks {
   onSourceChange: (source: AudioSourceType) => void;
   onFileSelected: (file: File) => void;
+  onElectronFileLoaded?: (buffer: ArrayBuffer, fileName: string) => void;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
@@ -35,6 +36,25 @@ export class Controls {
       this.callbacks.onSourceChange(value);
       this.toggleSourceControls(value);
     });
+
+    // Electron native file dialog
+    if (window.electronAPI?.isElectron) {
+      const dropZoneEl = document.getElementById('drop-zone') as HTMLElement;
+      if (dropZoneEl) {
+        const openBtn = document.createElement('button');
+        openBtn.textContent = 'Open File...';
+        openBtn.className = 'electron-open-btn';
+        openBtn.style.cssText = 'margin-bottom:6px;padding:6px 14px;background:#2a2a3e;color:#ccc;border:1px solid #444;border-radius:4px;cursor:pointer;width:100%;';
+        openBtn.addEventListener('click', async () => {
+          const result = await window.electronAPI!.openFileDialog();
+          if (result) {
+            this.callbacks.onElectronFileLoaded?.(result.buffer, result.name);
+            dropZoneEl.textContent = result.name;
+          }
+        });
+        dropZoneEl.parentElement?.insertBefore(openBtn, dropZoneEl);
+      }
+    }
 
     // File input
     const fileInput = document.getElementById('file-input') as HTMLInputElement;

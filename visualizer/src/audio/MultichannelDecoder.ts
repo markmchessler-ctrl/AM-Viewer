@@ -22,6 +22,14 @@ export class MultichannelDecoder {
     const labels_5_1 = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs'];
     const labels_stereo = ['L', 'R'];
 
+    if (channelCount > 12) {
+      // ADM BWF: 12 bed channels + object channels
+      return [
+        ...labels_7_1_4,
+        ...Array.from({ length: channelCount - 12 }, (_, i) => `Obj${i + 1}`)
+      ];
+    }
+
     switch (channelCount) {
       case 12: return labels_7_1_4;
       case 10: return labels_5_1_4;
@@ -75,6 +83,20 @@ export class MultichannelDecoder {
     const monoBuffer = context.createBuffer(1, buffer.length, buffer.sampleRate);
     monoBuffer.getChannelData(0).set(channelData);
     return monoBuffer;
+  }
+
+  /**
+   * Extract all channels from an AudioBuffer as individual mono buffers.
+   */
+  public static extractAllChannels(
+    buffer: AudioBuffer,
+    context: AudioContext
+  ): AudioBuffer[] {
+    const channels: AudioBuffer[] = [];
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      channels.push(this.extractChannel(buffer, i, context));
+    }
+    return channels;
   }
 
   /**

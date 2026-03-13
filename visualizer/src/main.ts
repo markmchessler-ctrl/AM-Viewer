@@ -127,6 +127,9 @@ class AtmosVisualizer {
       onCameraPreset: (preset) => {
         this.sceneManager.setCameraPreset(preset);
       },
+      onElectronFileLoaded: (buffer, fileName) => {
+        this.fileSource.loadBuffer(buffer, fileName);
+      },
     });
   }
 
@@ -262,7 +265,26 @@ class AtmosVisualizer {
       const currentTime = this.activeSource === 'file'
         ? this.fileSource.getCurrentTime()
         : elapsed;
-      this.objectTracker.updateObjects(this.admMetadata.objects, currentTime);
+
+      const bedCount = this.audioEngine.bedChannelCount;
+
+      // Update real-time object panning from ADM positions
+      for (let i = 0; i < this.admMetadata.objects.length; i++) {
+        const obj = this.admMetadata.objects[i];
+        // TODO: interpolate from blockFormats at currentTime for animated objects
+        const az = obj.azimuth ?? 0;
+        const el = obj.elevation ?? 0;
+        const gain = obj.gain ?? 0.7;
+        this.audioEngine.updateObjectPanning(i, az, el, gain);
+      }
+
+      // Pass channel energies so objects pulse with their audio energy
+      this.objectTracker.updateObjects(
+        this.admMetadata.objects,
+        currentTime,
+        analysis.channelEnergies,
+        bedCount,
+      );
     }
 
     // Update HUD

@@ -5,7 +5,7 @@ directories:
   output: release
 files:
   - dist/**/*
-  - electron/**/*.js
+  - dist-electron/**/*
 mac:
   category: public.app-category.music
   target:
