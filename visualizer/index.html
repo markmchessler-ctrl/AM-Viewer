@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atmos 3D Visualizer</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0a0f;
+        color: #e0e0e0;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      }
+      #app {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+      canvas {
+        display: block;
+      }
+      #hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        font-size: 12px;
+        color: rgba(200, 200, 220, 0.7);
+        pointer-events: none;
+        line-height: 1.6;
+      }
+      #controls {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        background: rgba(20, 20, 30, 0.85);
+        backdrop-filter: blur(10px);
+        padding: 10px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(100, 100, 140, 0.25);
+        z-index: 10;
+      }
+      #controls button {
+        background: rgba(60, 60, 90, 0.6);
+        border: 1px solid rgba(100, 100, 140, 0.3);
+        color: #c0c0d0;
+        padding: 6px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: background 0.2s;
+      }
+      #controls button:hover {
+        background: rgba(80, 80, 120, 0.8);
+      }
+      #controls button.active {
+        background: rgba(90, 120, 220, 0.5);
+        border-color: rgba(120, 150, 255, 0.5);
+      }
+      #source-panel {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: rgba(20, 20, 30, 0.85);
+        backdrop-filter: blur(10px);
+        padding: 14px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(100, 100, 140, 0.25);
+        z-index: 10;
+        min-width: 220px;
+      }
+      #source-panel h3 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: rgba(160, 160, 200, 0.6);
+        margin-bottom: 8px;
+      }
+      #source-panel select, #source-panel input[type="file"] {
+        width: 100%;
+        margin-bottom: 8px;
+        background: rgba(40, 40, 60, 0.8);
+        border: 1px solid rgba(100, 100, 140, 0.3);
+        color: #c0c0d0;
+        padding: 6px 8px;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      #drop-zone {
+        border: 2px dashed rgba(100, 100, 140, 0.3);
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        color: rgba(160, 160, 200, 0.5);
+        font-size: 13px;
+        cursor: pointer;
+        transition: border-color 0.2s, background 0.2s;
+      }
+      #drop-zone.dragover {
+        border-color: rgba(120, 150, 255, 0.6);
+        background: rgba(60, 80, 160, 0.15);
+      }
+      #device-selector {
+        display: none;
+      }
+      #playback-controls {
+        display: none;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      #playback-controls button {
+        background: rgba(60, 60, 90, 0.6);
+        border: 1px solid rgba(100, 100, 140, 0.3);
+        color: #c0c0d0;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .loading-overlay {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 10, 15, 0.9);
+        z-index: 100;
+        font-size: 16px;
+        color: rgba(160, 160, 200, 0.8);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="hud"></div>
+      <div id="source-panel">
+        <h3>Audio Source</h3>
+        <select id="source-select">
+          <option value="file">Local File</option>
+          <option value="capture">System Capture</option>
+          <option value="musickit">Apple Music</option>
+        </select>
+        <div id="file-source">
+          <div id="drop-zone">Drop audio file here<br><small>WAV / FLAC / ADM BWF (multichannel)</small></div>
+        </div>
+        <div id="device-selector">
+          <select id="device-select">
+            <option value="">Select audio input device...</option>
+          </select>
+          <button id="capture-btn" style="width:100%;margin-top:4px;background:rgba(60,60,90,0.6);border:1px solid rgba(100,100,140,0.3);color:#c0c0d0;padding:6px;border-radius:6px;cursor:pointer;">Start Capture</button>
+        </div>
+        <div id="playback-controls">
+          <button id="play-btn">Play</button>
+          <button id="stop-btn">Stop</button>
+          <span id="track-info" style="font-size:12px;color:rgba(160,160,200,0.5);"></span>
+        </div>
+      </div>
+      <div id="controls">
+        <button id="cam-front">Front</button>
+        <button id="cam-top">Top</button>
+        <button id="cam-side">Side</button>
+        <button id="cam-free" class="active">Free</button>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
