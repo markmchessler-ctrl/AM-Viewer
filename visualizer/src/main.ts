@@ -138,8 +138,7 @@ class AtmosVisualizer {
         );
       }
 
-      // Auto-play
-      this.fileSource.play();
+      // Playback starts automatically from loadBuffer()
     };
 
     this.fileSource.onEnded = () => {

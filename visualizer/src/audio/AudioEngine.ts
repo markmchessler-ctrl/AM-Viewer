@@ -19,7 +19,7 @@ export class AudioEngine {
   private timeDomainBuffers: Array<Float32Array<ArrayBuffer>> = [];
 
   constructor() {
-    this.context = new AudioContext({ sampleRate: 48000 });
+    this.context = new AudioContext();
     this.masterGain = this.context.createGain();
     this.masterGain.connect(this.context.destination);
   }

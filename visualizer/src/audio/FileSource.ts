@@ -4,7 +4,6 @@ import type { AdmMetadata } from '../adm/AdmTypes';
 
 export interface FileLoadResult {
   buffer: AudioBuffer;
-  source: AudioBufferSourceNode;
   channelCount: number;
   duration: number;
   sampleRate: number;
@@ -19,7 +18,7 @@ export interface FileLoadResult {
 export class FileSource {
   private engine: AudioEngine;
   private currentSource: AudioBufferSourceNode | null = null;
-  private rawBuffer: ArrayBuffer | null = null;
+  private decodedBuffer: AudioBuffer | null = null;
   private isPlaying = false;
   private startTime = 0;
   private pauseOffset = 0;
@@ -35,43 +34,37 @@ export class FileSource {
 
   /**
    * Load an audio file from an ArrayBuffer.
+   * Decodes the audio and immediately starts playback.
    */
   public async loadBuffer(arrayBuffer: ArrayBuffer, fileName: string): Promise<FileLoadResult> {
     await this.engine.resume();
 
     this.stop();
-    this.rawBuffer = arrayBuffer.slice(0); // Keep a copy
 
-    // Check for ADM metadata in BWF files
+    // Check for ADM metadata in BWF files (use a copy since decodeAudioData detaches the buffer)
     let admMetadata: AdmMetadata | null = null;
-    if (AdmBwfParser.hasAdmMetadata(arrayBuffer)) {
-      admMetadata = AdmBwfParser.parseFromBuffer(arrayBuffer);
+    const bufferCopy = arrayBuffer.slice(0);
+    if (AdmBwfParser.hasAdmMetadata(bufferCopy)) {
+      admMetadata = AdmBwfParser.parseFromBuffer(bufferCopy);
     }
 
     // Decode the audio data
-    const audioBuffer = await this.engine.context.decodeAudioData(arrayBuffer);
-
-    // Connect to engine
-    const source = this.engine.connectBuffer(audioBuffer);
-    this.currentSource = source;
-
-    source.onended = () => {
-      this.isPlaying = false;
-      this.pauseOffset = 0;
-      this.onEnded?.();
-    };
+    this.decodedBuffer = await this.engine.context.decodeAudioData(arrayBuffer);
 
     const result: FileLoadResult = {
-      buffer: audioBuffer,
-      source,
-      channelCount: audioBuffer.numberOfChannels,
-      duration: audioBuffer.duration,
-      sampleRate: audioBuffer.sampleRate,
+      buffer: this.decodedBuffer,
+      channelCount: this.decodedBuffer.numberOfChannels,
+      duration: this.decodedBuffer.duration,
+      sampleRate: this.decodedBuffer.sampleRate,
       admMetadata,
       fileName,
     };
 
     this.onLoad?.(result);
+
+    // Start playback immediately (still within user gesture context)
+    this.startPlayback(0);
+
     return result;
   }
 
@@ -84,25 +77,34 @@ export class FileSource {
   }
 
   /**
+   * Internal: create a new source node from the decoded buffer and start it.
+   * AudioBufferSourceNode can only be started once, so we recreate each time.
+   */
+  private startPlayback(offset: number): void {
+    if (!this.decodedBuffer) return;
+
+    // Create a fresh source node (they are single-use)
+    const source = this.engine.connectBuffer(this.decodedBuffer);
+    this.currentSource = source;
+
+    source.onended = () => {
+      this.isPlaying = false;
+      this.pauseOffset = 0;
+      this.onEnded?.();
+    };
+
+    source.start(0, offset);
+    this.startTime = this.engine.context.currentTime - offset;
+    this.isPlaying = true;
+  }
+
+  /**
    * Start or resume playback.
    */
   public play(): void {
-    if (this.isPlaying || !this.rawBuffer) return;
-
-    // AudioBufferSourceNode can only be started once, so recreate it
-    this.engine.context.decodeAudioData(this.rawBuffer.slice(0)).then(audioBuffer => {
-      const source = this.engine.connectBuffer(audioBuffer);
-      this.currentSource = source;
-
-      source.onended = () => {
-        this.isPlaying = false;
-        this.pauseOffset = 0;
-        this.onEnded?.();
-      };
-
-      source.start(0, this.pauseOffset);
-      this.startTime = this.engine.context.currentTime - this.pauseOffset;
-      this.isPlaying = true;
+    if (this.isPlaying || !this.decodedBuffer) return;
+    this.engine.resume().then(() => {
+      this.startPlayback(this.pauseOffset);
     });
   }
 
